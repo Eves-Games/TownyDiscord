@@ -1,0 +1,13 @@
+name: TownyDiscord
+version: '1.0'
+main: net.worldmc.townyDiscord.TownyDiscord
+api-version: '1.21'
+authors: [Ezekiel Pari]
+dependencies:
+  server:
+    Towny:
+      load: BEFORE
+    EssentialsDiscordLink:
+      load: BEFORE
+    EssentialsDiscord:
+      load: BEFORE
