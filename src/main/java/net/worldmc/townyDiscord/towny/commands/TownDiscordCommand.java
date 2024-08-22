@@ -61,7 +61,7 @@ public class TownDiscordCommand implements CommandExecutor {
 
         Component successMsg = Component.text()
                 .append(Component.text("[" + town.getName() + "] ", NamedTextColor.GOLD))
-                .append(Component.text(resident.getName() + " has set the nation discord to " + standardizedLink, NamedTextColor.AQUA))
+                .append(Component.text(resident.getName() + " has set the town discord to " + standardizedLink, NamedTextColor.AQUA))
                 .build();
 
         player.sendMessage(successMsg);
