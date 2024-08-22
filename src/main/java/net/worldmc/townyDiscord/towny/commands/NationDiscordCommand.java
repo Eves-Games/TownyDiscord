@@ -1,6 +1,7 @@
 package net.worldmc.townyDiscord.towny.commands;
 
 import com.palmergames.bukkit.towny.TownyAPI;
+import com.palmergames.bukkit.towny.TownyMessaging;
 import com.palmergames.bukkit.towny.object.Nation;
 import com.palmergames.bukkit.towny.object.Resident;
 import com.palmergames.bukkit.towny.object.metadata.StringDataField;
@@ -59,12 +60,7 @@ public class NationDiscordCommand implements CommandExecutor {
         StringDataField discordMetadata = new StringDataField(DISCORD_METADATA_KEY, standardizedLink);
         nation.addMetaData(discordMetadata);
 
-        Component successMsg = Component.text()
-                .append(Component.text("[" + nation.getName() + "] ", NamedTextColor.GOLD))
-                .append(Component.text(resident.getName() + " has set the nation discord to " + standardizedLink, NamedTextColor.AQUA))
-                .build();
-
-        player.sendMessage(successMsg);
+        TownyMessaging.sendPrefixedNationMessage(nation, resident.getName() + " has set the nation discord to " + standardizedLink);
 
         return true;
     }
