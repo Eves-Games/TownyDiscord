@@ -3,131 +3,81 @@ package net.worldmc.townyDiscord.discord.commands;
 import com.palmergames.bukkit.towny.TownyAPI;
 import com.palmergames.bukkit.towny.object.Nation;
 import com.palmergames.bukkit.towny.object.Resident;
-import net.essentialsx.api.v2.services.discord.*;
-import net.essentialsx.api.v2.services.discordlink.DiscordLinkService;
-import net.worldmc.townyDiscord.TownyDiscord;
-import org.bukkit.Bukkit;
-import org.bukkit.event.EventHandler;
+import github.scarsz.discordsrv.DiscordSRV;
+import github.scarsz.discordsrv.api.commands.PluginSlashCommand;
+import github.scarsz.discordsrv.api.commands.SlashCommand;
+import github.scarsz.discordsrv.api.commands.SlashCommandProvider;
+import github.scarsz.discordsrv.dependencies.jda.api.entities.TextChannel;
+import github.scarsz.discordsrv.dependencies.jda.api.events.interaction.SlashCommandEvent;
+import github.scarsz.discordsrv.dependencies.jda.api.interactions.commands.OptionType;
+import github.scarsz.discordsrv.dependencies.jda.api.interactions.commands.build.CommandData;
+import github.scarsz.discordsrv.dependencies.jda.api.interactions.commands.build.OptionData;
+import org.bukkit.plugin.Plugin;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class BroadcastCommand implements InteractionCommand {
-    private final DiscordService discordService;
-    private final DiscordLinkService discordLinkService;
-    private final MessageType broadcastChannel;
+public class BroadcastCommand implements SlashCommandProvider {
     private final ConcurrentHashMap<UUID, Long> cooldowns = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler;
+    private final long COOLDOWN_TIME = TimeUnit.HOURS.toMillis(1); // 1 hour cooldown
 
-    public BroadcastCommand(TownyDiscord plugin, DiscordService discordService, DiscordLinkService discordLinkService) {
-        this.discordService = discordService;
-        this.discordLinkService = discordLinkService;
-        this.broadcastChannel = new MessageType("broadcast");
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
-
-        discordService.registerMessageType(plugin, this.broadcastChannel);
-
-        scheduler.scheduleAtFixedRate(this::cleanupCooldowns, 1, 1, TimeUnit.HOURS);
-
-        Bukkit.getScheduler().runTask(plugin, () ->
-                plugin.getServer().getPluginManager().registerEvents(new org.bukkit.event.Listener() {
-                    @EventHandler
-                    public void onPluginDisable(org.bukkit.event.server.PluginDisableEvent event) {
-                        if (event.getPlugin() == plugin) {
-                            shutdown();
-                        }
-                    }
-                }, plugin)
-        );
-    }
-
-    private void shutdown() {
-        scheduler.shutdown();
-        try {
-            if (!scheduler.awaitTermination(60, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            scheduler.shutdownNow();
-        }
-    }
-
-    @Override
-    public void onCommand(InteractionEvent event) {
-        String discordId = event.getMember().getId();
-
-        UUID playerUUID = discordLinkService.getUUID(discordId);
+    @SlashCommand(path = "broadcast")
+    public void onBroadcastCommand(SlashCommandEvent event) {
+        UUID playerUUID = DiscordSRV.getPlugin().getAccountLinkManager().getUuid(event.getUser().getId());
         if (playerUUID == null) {
-            event.reply("Error: Your Discord account is not linked to a Minecraft account.");
+            event.reply("Error: Your Discord account is not linked to a Minecraft account.")
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
 
         Resident resident = TownyAPI.getInstance().getResident(playerUUID);
         if (resident == null || !resident.isKing()) {
-            event.reply("Error: You must be a king to use this command.");
+            event.reply("Error: You must be a king to use this command.")
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
 
         long currentTime = System.currentTimeMillis();
         long lastUsage = cooldowns.getOrDefault(playerUUID, 0L);
-        if (currentTime - lastUsage < TimeUnit.HOURS.toMillis(2)) {
-            long remainingCooldown = TimeUnit.HOURS.toMillis(2) - (currentTime - lastUsage);
-            event.reply("You must wait " + TimeUnit.MILLISECONDS.toMinutes(remainingCooldown) + " minutes before using this command again.");
+        if (currentTime - lastUsage < COOLDOWN_TIME) {
+            long remainingCooldown = COOLDOWN_TIME - (currentTime - lastUsage);
+            long minutesLeft = TimeUnit.MILLISECONDS.toMinutes(remainingCooldown);
+            event.reply("You must wait " + minutesLeft + " minutes before using this command again.")
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
 
         Nation nation = resident.getNationOrNull();
         assert nation != null;
 
-        String message = event.getStringArgument("message");
+        String message = Objects.requireNonNull(event.getOption("message")).getAsString();
 
-        discordService.sendMessage(broadcastChannel, "**[" + nation.getName() + "]** " + resident.getFormattedTitleName() + " (" + event.getMember().getAsMention() + ")\n" + message, false);
+        TextChannel broadcastChannel = DiscordSRV.getPlugin().getDestinationTextChannelForGameChannelName("broadcasts");
+        if (broadcastChannel == null) {
+            event.reply("Error: The broadcasts channel could not be found.").queue();
+            return;
+        }
 
-        // Set cooldown
+        broadcastChannel.sendMessage("**[" + nation.getName() + "]** " + resident.getFormattedTitleName() +
+                " (" + Objects.requireNonNull(event.getMember()).getAsMention() + ")\n" + message).queue();
+
         cooldowns.put(playerUUID, currentTime);
 
-        event.reply("Your message has been broadcasted: " + message);
-    }
-
-    private void cleanupCooldowns() {
-        long currentTime = System.currentTimeMillis();
-        cooldowns.entrySet().removeIf(entry -> currentTime - entry.getValue() >= TimeUnit.HOURS.toMillis(2));
+        event.reply("Your message has been broadcasted: " + message)
+                .setEphemeral(true)
+                .queue();
     }
 
     @Override
-    public String getName() {
-        return "broadcast";
-    }
-
-    @Override
-    public String getDescription() {
-        return "Broadcasts a message to all players on the server (Kings only)";
-    }
-
-    @Override
-    public List<InteractionCommandArgument> getArguments() {
-        return List.of(
-                new InteractionCommandArgument(
-                        "message",
-                        "The message to broadcast",
-                        InteractionCommandArgumentType.STRING,
-                        true
+    public Set<PluginSlashCommand> getSlashCommands() {
+        return new HashSet<>(List.of(
+                new PluginSlashCommand((Plugin) this, new CommandData("broadcast", "broadcasts a message to all players on the discord server (kings only)")
+                        .addOptions(new OptionData(OptionType.STRING, "message", "message to broadcast").setRequired(true))
                 )
-        );
-    }
-
-    @Override
-    public boolean isEphemeral() {
-        return true;
-    }
-
-    @Override
-    public boolean isDisabled() {
-        return false;
+        ));
     }
 }
